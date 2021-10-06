@@ -327,6 +327,11 @@ func (c *client) maintainConnection(ctx context.Context, u url.URL, initialResul
 			conn, err := c.connCreator(ctx, u)
 			if err != nil {
 				connError = err
+				if isHttp422(err) {
+					c.logger.Errorf("datav2stream: %v", wrapIrrecoverable(err))
+					sendError(wrapIrrecoverable(err))
+					return
+				}
 				c.logger.Warnf("datav2stream: failed to connect, error: %v", err)
 				continue
 			}
@@ -337,9 +342,8 @@ func (c *client) maintainConnection(ctx context.Context, u url.URL, initialResul
 				connError = err
 				c.conn.close()
 				if isErrorIrrecoverable(err) {
-					c.logger.Errorf("datav2stream: irrecoverable error during connection initialization: %v", err)
-					e := fmt.Errorf("irrecoverable error during connection initialization: %w", err)
-					sendError(e)
+					c.logger.Errorf("datav2stream: %v", wrapIrrecoverable(err))
+					sendError(wrapIrrecoverable(err))
 					return
 				}
 				c.logger.Warnf("datav2stream: connection setup failed, error: %v", err)
@@ -377,6 +381,16 @@ func (c *client) maintainConnection(ctx context.Context, u url.URL, initialResul
 // not take place
 func isErrorIrrecoverable(err error) bool {
 	return errors.Is(err, ErrInvalidCredentials) || errors.Is(err, ErrInsufficientSubscription)
+}
+
+func isHttp422(err error) bool {
+	// Unfortunately the nhoory error is a simple formatted string, created by fmt.Errorf,
+	// so the only check we can do is string matching
+	return strings.Contains(err.Error(), "expected handshake response status code 101 but got 422")
+}
+
+func wrapIrrecoverable(err error) error {
+	return fmt.Errorf("irrecoverable error: %w", err)
 }
 
 var newPingTicker = func() ticker {
